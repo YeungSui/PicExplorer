@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.ContentResolver;
 import android.content.ContentValues;
+import android.content.DialogInterface;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.graphics.Bitmap;
@@ -17,9 +18,12 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AdapterView;
+import android.widget.Button;
 import android.widget.GridView;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
 import android.widget.RadioGroup;
+import android.widget.Toast;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -43,10 +47,10 @@ public class PhotoThumbnailFragment extends Fragment {
             MediaStore.Images.Media.DATE_ADDED
     };
     private GridView thumbnail_display;
-    private ArrayList<ImgInfo> thumbnailsInfo = new ArrayList<ImgInfo>();
+    private ArrayList<ImgInfo> thumbnailsInfo = new ArrayList<>();
     private Cursor cur;
-    private ArrayList<Bitmap> thumbnails = new ArrayList<Bitmap>();
-    private HashMap<Integer, Boolean> selectedThumbnails = new HashMap<Integer, Boolean>();
+    private ArrayList<Bitmap> thumbnails = new ArrayList<>();
+    private HashMap<Integer, Boolean> selectedThumbnails = new HashMap<>();
 
     @Override
     public View onCreateView(LayoutInflater inflater, ViewGroup container, Bundle SavedInstanceState) {
@@ -61,6 +65,8 @@ public class PhotoThumbnailFragment extends Fragment {
     @Override
     public void onViewCreated(View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
+        LinearLayout bottom_menu = getActivity().findViewById(R.id.layout_thumbnail_menu);
+        setBottomMenuListener(bottom_menu);
         GridView gv = view.findViewById(R.id.gv_thumbnails_display);
         gv.setOnItemClickListener(new AdapterView.OnItemClickListener() {
             @Override
@@ -69,7 +75,8 @@ public class PhotoThumbnailFragment extends Fragment {
             }
         });
         // 长按监听
-        // 细节在showSelectHint
+        // 显示右上角标记
+        // 显示底部菜单
         gv.setOnItemLongClickListener(new AdapterView.OnItemLongClickListener() {
             @Override
             public boolean onItemLongClick(AdapterView<?> parent, View view, int position, long id) {
@@ -78,13 +85,13 @@ public class PhotoThumbnailFragment extends Fragment {
                     showSelectHint(parent, view, position);
                     showBottomMenu((GridView) parent, adapter, position);
                 }
-                return false;
+                return true;
             }
         });
     }
 
     public void initView(View view) {
-        thumbnail_display = (GridView) view.findViewById(R.id.gv_thumbnails_display);
+        thumbnail_display = view.findViewById(R.id.gv_thumbnails_display);
     }
 
     private void initData() {
@@ -100,31 +107,6 @@ public class PhotoThumbnailFragment extends Fragment {
     /*
      * Get all thumbnails on the device
      */
-
-    private void getThumbnails() {
-        ContentResolver cont = getActivity().getContentResolver();
-        Cursor cur = MediaStore.Images.Media.query(cont, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, IMAGE_INFO);
-        thumbnailsInfo = new ArrayList<ImgInfo>();
-        thumbnails = new ArrayList<Bitmap>();
-        while (cur.moveToNext()) {
-            String name = cur.getString(0);
-            String path = cur.getString(1);
-            String id = cur.getString(2);
-            String dir_id = cur.getString(3);
-            String dir = cur.getString(4);
-            String longitude = cur.getString(5);
-            String latitude = cur.getString(6);
-            String takenTime = cur.getString(7);
-            String addedTime = cur.getString(8);
-            thumbnailsInfo.add(new ImgInfo(name, path, id, dir_id, dir, longitude, latitude, takenTime, addedTime));
-        }
-        BitmapFactory.Options options = new BitmapFactory.Options();
-        options.inDither = false;
-        options.inPreferredConfig = Bitmap.Config.RGB_565;
-        for (ImgInfo imgInfo : thumbnailsInfo) {
-            thumbnails.add(MediaStore.Images.Thumbnails.getThumbnail(cont, Long.parseLong(imgInfo.getId()), MediaStore.Images.Thumbnails.MICRO_KIND, options));
-        }
-    }
 
     // 长按监听细节
     // 长按显示网格子项的帧布局，显示右上角的 未 选择图案
@@ -144,7 +126,7 @@ public class PhotoThumbnailFragment extends Fragment {
         int pos = -1;
         //找出要删除的图片在网格的位置
         for (int i = 0; i < thumbnailsInfo.size(); i++) {
-            if (imgInfo.getId() == thumbnailsInfo.get(i).getId()) {
+            if (imgInfo.getId().equals(thumbnailsInfo.get(i).getId())) {
                 pos = i;
                 break;
             }
@@ -203,37 +185,47 @@ public class PhotoThumbnailFragment extends Fragment {
     // 隐藏activity的底部选项，显示本fragment的底部布局
     // 为菜单按钮设置监听
     private void showBottomMenu(GridView gridView, ThumbnailsAdapter adapter, int pos) {
-        RadioGroup rg = getActivity().findViewById(R.id.rg_radio_navigation);
-        rg.setVisibility(View.GONE);
-        RadioGroup radioGroup = getActivity().findViewById(R.id.rg_thumbnail_menu);
-        radioGroup.setVisibility(View.VISIBLE);
-        setBottomMenuListener(radioGroup);
+        Log.i("Debug", "show bottom menu");
+        RadioGroup navigation = getActivity().findViewById(R.id.rg_radio_navigation);
+        navigation.setVisibility(View.GONE);
+        LinearLayout menu = getActivity().findViewById(R.id.layout_thumbnail_menu);
+        menu.setVisibility(View.VISIBLE);
     }
 
     // 设置缩略图网格底部菜单监听器
-    private void setBottomMenuListener(RadioGroup rg) {
-        rg.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
+    private void setBottomMenuListener(LinearLayout bottomMenu) {
+        Button btn = bottomMenu.findViewById(R.id.btn_thumbnail_delete);
+        btn.setOnClickListener(new View.OnClickListener() {
             @Override
-            public void onCheckedChanged(RadioGroup group, int checkedId) {
-                switch (checkedId) {
-                    case R.id.btn_thumbnail_delete:
-                        deleteImage();
-                        break;
-                    case R.id.btn_thumbnail_upload:
-                        uploadImage();
-                        break;
-                    case R.id.btn_thumbnail_classify:
-                        classifyImage();
-                        break;
-                    case R.id.btn_thumbnail_rate:
-                        rateImage();
-                        break;
-                }
+            public void onClick(View v) {
+                deleteImages();
             }
         });
+        btn = bottomMenu.findViewById(R.id.btn_thumbnail_rate);
+        btn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                rateImage();
+            }
+        });
+        btn = bottomMenu.findViewById(R.id.btn_thumbnail_classify);
+        btn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                classifyImage();
+            }
+        });
+        btn = bottomMenu.findViewById(R.id.btn_thumbnail_upload);
+        btn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                uploadImage();
+            }
+        });
+        Log.i("Debug", "bottom menu listener set");
     }
 
-    private void deleteImage() {
+    private void deleteImages() {
         Log.i("Menu Click", "delete image");
         GridView gv = getActivity().findViewById(R.id.gv_thumbnails_display);
         ThumbnailsAdapter adapter = (ThumbnailsAdapter) gv.getAdapter();
@@ -255,13 +247,13 @@ public class PhotoThumbnailFragment extends Fragment {
         // 先删除文件
         ImgInfo imgInfo = thumbnailsInfo.get(pos);
         File file = new File(imgInfo.getPath());
-        if (file != null) {
-            file.delete();
-        }
+        file.delete();
         // 再删除mediastore的记录
         ContentResolver con = getActivity().getContentResolver();
         String where = MediaStore.Images.Media.DATA + " ='" + imgInfo.getPath() + "'";
         con.delete(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, where, null);
+        // 删除数据库记录
+        ((MainActivity) getActivity()).getImageDBHelper().getWritableDatabase().delete("image_info", MediaStore.Images.Media._ID + "=?", new String[]{imgInfo.getId()});
         // 最后删除网格的缩略图的数据，包括选中列表、缩略图信息和缩略图
         thumbnailsInfo.remove(pos);
         thumbnails.remove(pos);
@@ -278,19 +270,54 @@ public class PhotoThumbnailFragment extends Fragment {
     // 评分
     // 写入数据库
     private void rateImage() {
-        Log.i("Menu Click", "rate image");
         AlertDialog.Builder builder = new AlertDialog.Builder(getActivity());
         builder.setTitle("评分");
+        String ratings[] = {"1", "2", "3", "4", "5"};
+        DialogMenuListener dialogMenuListener = new DialogMenuListener();
+        builder.setSingleChoiceItems(ratings, dialogMenuListener.DEFAULT_CHECKED, dialogMenuListener);
+        String positive = "确认";
+        builder.setPositiveButton(positive, dialogMenuListener);
+        String negative = "取消";
+        builder.setNegativeButton(negative, dialogMenuListener);
+        AlertDialog dialog = builder.create();
+        dialog.show();
+    }
 
+    private boolean doRating(int rating) {
+        Log.i("Get Rating", "Rating is " + rating);
         Iterator it = selectedThumbnails.entrySet().iterator();
         while (it.hasNext()) {
             int pos = (int) ((HashMap.Entry) it.next()).getKey();
-            ContentValues con = new ContentValues();
-            con.put(MediaStore.Images.Media._ID, thumbnailsInfo.get(pos).getId());
+            ContentValues values = new ContentValues();
+            values.put("rating", rating);
+            try {
+                ImageDBHelper imageDBHelper = ((MainActivity) getActivity()).getImageDBHelper();
+                SQLiteDatabase db = imageDBHelper.getWritableDatabase();
+                db.update(imageDBHelper.IMAGE_INFO, values, "_id=?", new String[]{thumbnailsInfo.get(pos).getId()});
+            } catch (Exception e) {
+                e.printStackTrace();
+                return false;
+            }
+        }
+        return true;
+    }
 
-            ImageDBHelper imageDBHelper = ((MainActivity) getActivity()).getImageDBHelper();
-            SQLiteDatabase db = imageDBHelper.getWritableDatabase();
-            //db.replace(imageDBHelper.IMAGE_RATING, null, )
+    class DialogMenuListener implements DialogInterface.OnClickListener {
+        public final static int DEFAULT_CHECKED = 2;
+        private int selectedId = DEFAULT_CHECKED;
+
+        @Override
+        public void onClick(DialogInterface dialog, int which) {
+            if (which > 0) {
+                selectedId = which;
+            } else if (which == DialogInterface.BUTTON_POSITIVE) {
+                boolean success = doRating(selectedId + 1);
+                Toast.makeText(getActivity(), (success ? "评分已记录" : "评分记录出错了-_-!"), Toast.LENGTH_LONG).show();
+                getActivity().onBackPressed();
+                dialog.dismiss();
+            } else if (which == DialogInterface.BUTTON_NEGATIVE) {
+                dialog.dismiss();
+            }
         }
     }
 }

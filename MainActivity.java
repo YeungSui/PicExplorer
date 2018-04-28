@@ -25,6 +25,7 @@ import android.widget.FrameLayout;
 import android.widget.GridView;
 import android.widget.ImageView;
 import android.widget.RadioGroup;
+import android.widget.Toast;
 
 import java.io.File;
 import java.util.ArrayList;
@@ -40,8 +41,8 @@ public class MainActivity extends AppCompatActivity implements RadioGroup.OnChec
     private Fragment[] mFragments;
     private ImageDBHelper imageDBHelper;
     private FrameLayout mLayout;
-    private ArrayList<ImgInfo> thumbnailsInfo = new ArrayList<ImgInfo>();
-    private ArrayList<Bitmap> thumbnails = new ArrayList<Bitmap>();
+    private ArrayList<ImgInfo> thumbnailsInfo = new ArrayList<>();
+    private ArrayList<Bitmap> thumbnails = new ArrayList<>();
     private LocalBroadcastManager localBroadcastManager;
     private DBUpdateBroadcastReciever dbUpdateBroadcastReciever;
     private IntentFilter notifyThumbnailDisplayIntent = new IntentFilter("NOTIFY_GV_THUMBNAILS_DISPLAY");
@@ -63,7 +64,7 @@ public class MainActivity extends AppCompatActivity implements RadioGroup.OnChec
             finish();
             setResult(RESULT_OK);
         }
-        imageDBHelper = new ImageDBHelper(this, "image.db", null, 1);
+        imageDBHelper = new ImageDBHelper(this, "image.db", null, 2);
         dbUpdateBroadcastReciever = new DBUpdateBroadcastReciever();
         localBroadcastManager = LocalBroadcastManager.getInstance(this);
         localBroadcastManager.registerReceiver(dbUpdateBroadcastReciever, notifyThumbnailDisplayIntent);
@@ -82,8 +83,8 @@ public class MainActivity extends AppCompatActivity implements RadioGroup.OnChec
     }
 
     private void initView() {
-        mRadioGroup = (RadioGroup) findViewById(R.id.rg_radio_navigation);
-        mLayout = (FrameLayout) findViewById(R.id.fl_radio_show);
+        mRadioGroup = findViewById(R.id.rg_radio_navigation);
+        mLayout = findViewById(R.id.fl_radio_show);
     }
 
     private void initFragments() {
@@ -125,22 +126,32 @@ public class MainActivity extends AppCompatActivity implements RadioGroup.OnChec
         });
         // 设置删除按钮监听器
         // 删除图片文件同时删除媒体库记录（注意先设置imageview内容）
+        // 删除sqlite数据库记录
         // 删除gridview子项（被删除的缩略图）
         // 调用返回键返回到主页
         findViewById(R.id.btn_delete_image).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                ImageView iv = (ImageView) findViewById(R.id.iv_image_display);
+                ImageView iv = findViewById(R.id.iv_image_display);
                 ImgInfo imgInfo = (ImgInfo) iv.getTag();
                 iv.setImageBitmap(null);
                 onBackPressed();
+                // 删除文件
                 File file = new File(imgInfo.getPath());
-                file.delete();
+                if (file != null) {
+                    if (file.delete()) {
+                        Toast.makeText(MainActivity.this, "文件已删除", Toast.LENGTH_SHORT);
+                    }
+                }
+                // 删除媒体库记录
                 ContentResolver con = getContentResolver();
                 String where = MediaStore.Images.Media.DATA + " ='" + imgInfo.getPath() + "'";
                 con.delete(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, where, null);
+                // 删除数据库记录
+                imageDBHelper.getWritableDatabase().delete("image_info", MediaStore.Images.Media._ID + "=?", new String[]{imgInfo.getId()});
                 HomepageFragment fragment = (HomepageFragment) mFragments[0];
                 Log.i("event", (fragment == null ? "" : "not ") + "null");
+                // 调用缩略图所在的fragment的方法删除缩略图
                 fragment.getPhotoThumbnailFragment().onDeleteImage(imgInfo);
                 Log.i("fragment no.", "" + fragment.getId());
             }
@@ -154,13 +165,20 @@ public class MainActivity extends AppCompatActivity implements RadioGroup.OnChec
         switch (checkedId) {
             case R.id.rb_radio_homepage:
                 transaction.replace(R.id.fl_radio_show, mFragments[0]);
+                Log.i("Fragment Change", "homepage");
                 break;
             case R.id.rb_radio_subscription:
                 transaction.replace(R.id.fl_radio_show, mFragments[1]);
+                Log.i("Fragment Change", "subscription");
+                break;
             case R.id.rb_radio_discovery:
                 transaction.replace(R.id.fl_radio_show, mFragments[2]);
+                Log.i("Fragment Change", "discovery");
+                break;
             case R.id.rb_radio_profile:
                 transaction.replace(R.id.fl_radio_show, mFragments[3]);
+                Log.i("Fragment Change", "profile");
+                break;
         }
         transaction.commit();
     }
@@ -192,7 +210,7 @@ public class MainActivity extends AppCompatActivity implements RadioGroup.OnChec
             adapter.clearSelectedThumbnails();
             adapter.notifyDataSetChanged();
             // 隐藏底部菜单
-            findViewById(R.id.rg_thumbnail_menu).setVisibility(View.GONE);
+            findViewById(R.id.layout_thumbnail_menu).setVisibility(View.GONE);
             // 显示底部选项卡
             findViewById(R.id.rg_radio_navigation).setVisibility(View.VISIBLE);
         } else {
@@ -213,6 +231,7 @@ public class MainActivity extends AppCompatActivity implements RadioGroup.OnChec
         return thumbnails;
     }
 
+    // 该线程用于获取图片数据（缩略图和图片信息），并更新本地数据库
     class DBUpdateThread implements Runnable {
         @Override
         public void run() {
@@ -229,8 +248,6 @@ public class MainActivity extends AppCompatActivity implements RadioGroup.OnChec
             };
             ContentResolver cont = getContentResolver();
             Cursor cur = MediaStore.Images.Media.query(cont, MediaStore.Images.Media.EXTERNAL_CONTENT_URI, IMAGE_INFO);
-            thumbnailsInfo = new ArrayList<ImgInfo>();
-            thumbnails = new ArrayList<Bitmap>();
             while (cur.moveToNext()) {
                 String name = cur.getString(0);
                 String path = cur.getString(1);
@@ -255,12 +272,16 @@ public class MainActivity extends AppCompatActivity implements RadioGroup.OnChec
             } catch (Exception e) {
                 e.printStackTrace();
             }
+            // 本地广播，数据获取完成通知缩略图fragment刷新界面
             Intent intent = new Intent("NOTIFY_GV_THUMBNAILS_DISPLAY");
             LocalBroadcastManager lm = LocalBroadcastManager.getInstance(MainActivity.this);
             lm.sendBroadcast(intent);
-            // 刷新数据库
+
+            SQLiteDatabase db = imageDBHelper.getWritableDatabase();
+            // 清空临时表（上一次程序退出前不能保证清空了临时表）
+            db.delete(ImageDBHelper.IMAGE_INFO_TEMP, null, null);
+            // 刷新数据库，插入到临时表中，以便用来比较删除多余数据
             for (ImgInfo imgInfo : thumbnailsInfo) {
-                SQLiteDatabase db = imageDBHelper.getWritableDatabase();
                 ContentValues values1 = new ContentValues();
                 values1.put(IMAGE_INFO[0], imgInfo.getName());
                 values1.put(IMAGE_INFO[1], imgInfo.getPath());
@@ -275,8 +296,23 @@ public class MainActivity extends AppCompatActivity implements RadioGroup.OnChec
                     values1.put(IMAGE_INFO[7], Long.parseLong(imgInfo.getTakenTime()));
                 }
                 values1.put(IMAGE_INFO[8], Long.parseLong(imgInfo.getAddedTime()));
-                db.replace("image_info", null, values1);
+                try {
+                    db.insertOrThrow(ImageDBHelper.IMAGE_INFO_TEMP, null, values1);
+                    db.insertOrThrow(ImageDBHelper.IMAGE_INFO, null, values1);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    Log.i("Message", "no need to worry if exception caused by existed row");
+
+                }
             }
+            // 刷新数据库，参照临时表，比较旧表，删除媒体库不存在的值
+            String delteTrash = "DELETE FROM " + ImageDBHelper.IMAGE_INFO + " WHERE " +
+                    MediaStore.Images.Media._ID + " NOT IN (" +
+                    "SELECT " + MediaStore.Images.Media._ID + " FROM " + ImageDBHelper.IMAGE_INFO_TEMP +
+                    ")";
+            db.execSQL(delteTrash);
+            // 清空临时表
+            db.delete(ImageDBHelper.IMAGE_INFO_TEMP, null, null);
         }
 
     }
