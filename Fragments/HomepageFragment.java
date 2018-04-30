@@ -49,7 +49,7 @@ public class HomepageFragment extends Fragment {
             if (i == 0) {
                 mFragments.add(new PhotoFragment());
             } else if (i == 1) {
-                mFragments.add(new PictureFragment());
+                mFragments.add(new OnlinePhotoFragment());
             }
         }
         //getSupportFragmentManager()是Activity嵌套fragment时使用
