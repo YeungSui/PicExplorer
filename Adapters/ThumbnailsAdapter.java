@@ -1,4 +1,4 @@
-package com.pic.stage.picexplorer;
+package com.pic.stage.picexplorer.Adapters;
 
 import android.content.Context;
 import android.graphics.Bitmap;
@@ -9,28 +9,30 @@ import android.widget.BaseAdapter;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import com.pic.stage.picexplorer.ImgInfo;
+import com.pic.stage.picexplorer.R;
+
 import java.util.ArrayList;
-import java.util.HashMap;
 
 public class ThumbnailsAdapter extends BaseAdapter {
     private LayoutInflater inflater;
     private ArrayList<ImgInfo> thumbnailsInfo;
     private ArrayList<Bitmap> thumbnails;
-    private HashMap<Integer, Boolean> selectedThumbnails;
+    private ArrayList<Integer> selectedThumbnails;
     private boolean selectHint = false;
 
-    public ThumbnailsAdapter(Context context, ArrayList<ImgInfo> mData, ArrayList<Bitmap> mThumbnails, HashMap<Integer, Boolean> mSelectedThumnails) {
+    public ThumbnailsAdapter(Context context, ArrayList<ImgInfo> mData, ArrayList<Bitmap> mThumbnails, ArrayList<Integer> mSelectedThumbnails) {
         this.inflater = LayoutInflater.from(context);
         thumbnailsInfo = mData;
         thumbnails = mThumbnails;
-        selectedThumbnails = mSelectedThumnails;
+        selectedThumbnails = mSelectedThumbnails;
     }
 
     @Override
     public int getCount() {
         if (thumbnailsInfo == null)
             return 0;
-        return thumbnailsInfo.size();
+        return thumbnailsInfo.size() > thumbnails.size() ? thumbnails.size() : thumbnailsInfo.size();
     }
 
     @Override
@@ -47,7 +49,9 @@ public class ThumbnailsAdapter extends BaseAdapter {
 
     @Override
     public View getView(int position, View convertView, ViewGroup parent) {
-
+        if (thumbnailsInfo.size() == 0) {
+            return convertView;
+        }
         ViewHolder holder;
         if (convertView == null) {
             convertView = inflater.inflate(R.layout.thumbnail_item, null);
@@ -83,7 +87,7 @@ public class ThumbnailsAdapter extends BaseAdapter {
     }
 
     private boolean isThumbnailSelected(int pos) {
-        if (selectedThumbnails.get(pos) != null) {
+        if (selectedThumbnails.contains(pos)) {
             return true;
         }
         return false;
@@ -94,7 +98,7 @@ public class ThumbnailsAdapter extends BaseAdapter {
         notifyDataSetChanged();
     }
 
-    class ViewHolder {
+    private class ViewHolder {
         ImageView image;
         TextView text;
         ImageView selectHint;

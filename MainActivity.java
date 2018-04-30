@@ -11,6 +11,7 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.net.Uri;
 import android.os.Bundle;
 import android.provider.MediaStore;
 import android.support.annotation.IdRes;
@@ -27,8 +28,20 @@ import android.widget.ImageView;
 import android.widget.RadioGroup;
 import android.widget.Toast;
 
+import com.pic.stage.picexplorer.Adapters.ThumbnailsAdapter;
+import com.pic.stage.picexplorer.Fragments.DiscoveryFragment;
+import com.pic.stage.picexplorer.Fragments.HomepageFragment;
+import com.pic.stage.picexplorer.Fragments.PhotoFragment;
+import com.pic.stage.picexplorer.Fragments.PhotoThumbnailFragment;
+import com.pic.stage.picexplorer.Fragments.ProfileFragment;
+import com.pic.stage.picexplorer.Fragments.SortDisplayFragment;
+import com.pic.stage.picexplorer.Fragments.SubscriptionFragment;
+
 import java.io.File;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 public class MainActivity extends AppCompatActivity implements RadioGroup.OnCheckedChangeListener {
     private static final String[] permList = {
@@ -42,10 +55,17 @@ public class MainActivity extends AppCompatActivity implements RadioGroup.OnChec
     private ImageDBHelper imageDBHelper;
     private FrameLayout mLayout;
     private ArrayList<ImgInfo> thumbnailsInfo = new ArrayList<>();
+    private final String UPDATE_CATEGORY_ACTION = "NOTIFY_UPDATE_CATEGORY";
     private ArrayList<Bitmap> thumbnails = new ArrayList<>();
+    private final String THUMBNAIL_DISPLAY_ACTION = "NOTIFY_GV_THUMBNAILS_DISPLAY";
+    Thread updateCategoryThread;
     private LocalBroadcastManager localBroadcastManager;
     private DBUpdateBroadcastReciever dbUpdateBroadcastReciever;
-    private IntentFilter notifyThumbnailDisplayIntent = new IntentFilter("NOTIFY_GV_THUMBNAILS_DISPLAY");
+    Thread dbUpdateThread;
+    private HashMap<Integer, ImgInfo> thumbnailsInfoMap = new HashMap<>();
+    private HashMap<Integer, String> category = new HashMap<>();
+    private ArrayList<ClassificationItem> classification = new ArrayList<>();
+    private IntentFilter intentFilter = new IntentFilter();
 
     @Override
     protected void onDestroy() {
@@ -67,10 +87,15 @@ public class MainActivity extends AppCompatActivity implements RadioGroup.OnChec
         imageDBHelper = new ImageDBHelper(this, "image.db", null, 2);
         dbUpdateBroadcastReciever = new DBUpdateBroadcastReciever();
         localBroadcastManager = LocalBroadcastManager.getInstance(this);
-        localBroadcastManager.registerReceiver(dbUpdateBroadcastReciever, notifyThumbnailDisplayIntent);
-        DBUpdateThread runable = new DBUpdateThread();
-        Thread thread = new Thread(runable, "dbUpdateThread");
-        thread.start();
+        intentFilter.addAction(THUMBNAIL_DISPLAY_ACTION);
+        intentFilter.addAction(UPDATE_CATEGORY_ACTION);
+        localBroadcastManager.registerReceiver(dbUpdateBroadcastReciever, intentFilter);
+        DBUpdateThread runable1 = new DBUpdateThread();
+        dbUpdateThread = new Thread(runable1, "dbUpdateThread");
+        dbUpdateThread.start();
+        UpdateInfoListThread runable2 = new UpdateInfoListThread();
+        updateCategoryThread = new Thread(runable2, "update_category_thread");
+        updateCategoryThread.start();
     }
 
     private boolean checkPermission() {
@@ -124,6 +149,18 @@ public class MainActivity extends AppCompatActivity implements RadioGroup.OnChec
                 }
             }
         });
+        findViewById(R.id.btn_share_image).setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                ImageView iv = findViewById(R.id.iv_image_display);
+                ImgInfo imgInfo = (ImgInfo) iv.getTag();
+                Intent intent = new Intent(Intent.ACTION_SEND);
+                intent.setType("image/*");
+                Uri baseUri = Uri.parse("content://media/external/images/media");
+                intent.putExtra(Intent.EXTRA_STREAM, Uri.withAppendedPath(baseUri, imgInfo.getId()));
+                startActivity(Intent.createChooser(intent, "分享"));
+            }
+        });
         // 设置删除按钮监听器
         // 删除图片文件同时删除媒体库记录（注意先设置imageview内容）
         // 删除sqlite数据库记录
@@ -152,7 +189,21 @@ public class MainActivity extends AppCompatActivity implements RadioGroup.OnChec
                 HomepageFragment fragment = (HomepageFragment) mFragments[0];
                 Log.i("event", (fragment == null ? "" : "not ") + "null");
                 // 调用缩略图所在的fragment的方法删除缩略图
-                fragment.getPhotoThumbnailFragment().onDeleteImage(imgInfo);
+                List<Fragment> fragments = fragment.getChildFragmentManager().getFragments();
+                for (Fragment f : fragments) {
+                    if (f != null && f.isVisible()) {
+                        if (f.getClass().getName().equals(PhotoFragment.class.getName())) {
+                            List<Fragment> fragments1 = f.getChildFragmentManager().getFragments();
+                            for (Fragment f1 : fragments1) {
+                                if (!PhotoThumbnailFragment.class.getName().equals(f1.getClass().getName())) {
+                                    ((SortDisplayFragment) f1).onDeleteImage(imgInfo);
+                                } else {
+                                    ((PhotoThumbnailFragment) f1).onDeleteImage(imgInfo);
+                                }
+                            }
+                        }
+                    }
+                }
                 Log.i("fragment no.", "" + fragment.getId());
             }
         });
@@ -191,13 +242,16 @@ public class MainActivity extends AppCompatActivity implements RadioGroup.OnChec
         ImageView iv = findViewById(R.id.iv_image_display);
         HomepageFragment homepage = (HomepageFragment) mFragments[0];
         GridView gv = findViewById(R.id.gv_thumbnails_display);
-        ThumbnailsAdapter adapter = (ThumbnailsAdapter) gv.getAdapter();
         if (iv.getVisibility() == View.VISIBLE) {
             iv.setImageBitmap(null);
             iv.setVisibility(View.GONE);
             findViewById(R.id.display_options).setVisibility(View.GONE);
             findViewById(R.id.image_display_layout).setVisibility(View.GONE);
             findViewById(R.id.rg_radio_navigation).setVisibility(View.VISIBLE);
+            return;
+        } else if (gv == null) {
+            super.onBackPressed();
+            return;
         }
         // 缩略图被选中状态时的操作
         // 隐藏右上角标记
@@ -205,7 +259,8 @@ public class MainActivity extends AppCompatActivity implements RadioGroup.OnChec
         // 通知适配器更新视图
         // 隐藏底部菜单
         // 显示底部选项卡（主页的）
-        else if (adapter.getSelectHint()) {
+        ThumbnailsAdapter adapter = (ThumbnailsAdapter) gv.getAdapter();
+        if (adapter.getSelectHint()) {
             adapter.setSelectHint(false);
             adapter.clearSelectedThumbnails();
             adapter.notifyDataSetChanged();
@@ -231,8 +286,28 @@ public class MainActivity extends AppCompatActivity implements RadioGroup.OnChec
         return thumbnails;
     }
 
+    public HashMap<Integer, String> getCategory() {
+        return category;
+    }
+
+    public ArrayList<ClassificationItem> getClassification() {
+        return classification;
+    }
+
+    public HashMap<Integer, ImgInfo> getThumbnailsInfoMap() {
+        return thumbnailsInfoMap;
+    }
+
+    @Override
+    protected void onStop() {
+        if (this.updateCategoryThread != null) {
+            this.updateCategoryThread.interrupt();
+        }
+        super.onStop();
+    }
+
     // 该线程用于获取图片数据（缩略图和图片信息），并更新本地数据库
-    class DBUpdateThread implements Runnable {
+    private class DBUpdateThread implements Runnable {
         @Override
         public void run() {
             final String[] IMAGE_INFO = {
@@ -258,8 +333,11 @@ public class MainActivity extends AppCompatActivity implements RadioGroup.OnChec
                 String latitude = cur.getString(6);
                 String takenTime = cur.getString(7);
                 String addedTime = cur.getString(8);
-                thumbnailsInfo.add(new ImgInfo(name, path, id, dir_id, dir, longitude, latitude, takenTime, addedTime));
+                ImgInfo tempInfo = new ImgInfo(name, path, id, dir_id, dir, longitude, latitude, takenTime, addedTime);
+                thumbnailsInfo.add(tempInfo);
+                thumbnailsInfoMap.put(Integer.parseInt(id), tempInfo);
             }
+            cur.close();
             BitmapFactory.Options options = new BitmapFactory.Options();
             options.inDither = false;
             options.inPreferredConfig = Bitmap.Config.RGB_565;
@@ -268,7 +346,7 @@ public class MainActivity extends AppCompatActivity implements RadioGroup.OnChec
             }
             Log.i("Debug", "before broadcast");
             try {
-                Thread.sleep(1000);
+                Thread.sleep(2000);
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -313,16 +391,83 @@ public class MainActivity extends AppCompatActivity implements RadioGroup.OnChec
             db.execSQL(delteTrash);
             // 清空临时表
             db.delete(ImageDBHelper.IMAGE_INFO_TEMP, null, null);
+            db.close();
         }
 
+    }
+
+    private class UpdateInfoListThread implements Runnable {
+        @Override
+        public void run() {
+            while (true) {
+                try {
+                    TimeUnit.NANOSECONDS.sleep(1);
+                } catch (InterruptedException e) {
+                    break;
+                }
+                // 获取类别
+                SQLiteDatabase db = imageDBHelper.getReadableDatabase();
+                Cursor cur = db.query(ImageDBHelper.CATEGORY, null, null, null, null, null, null);
+                while (cur.moveToNext()) {
+                    category.put(cur.getInt(0), cur.getString(1));
+                }
+                cur.close();
+                // 获取分类
+                cur = db.query(ImageDBHelper.IMAGE_CLASSIFCATION, null, null, null, null, null, null);
+                int colImgId = cur.getColumnIndex(MediaStore.Images.Media._ID);
+                int colCatId = cur.getColumnIndex("category_id");
+                classification.clear();
+                while (cur.moveToNext()) {
+                    classification.add(new ClassificationItem(cur.getInt(colImgId), cur.getInt(colCatId)));
+                }
+                cur.close();
+                // 更新HashMap
+                cur = db.query(ImageDBHelper.IMAGE_INFO, null, null, null, null, null, null);
+                int colId = cur.getColumnIndex(MediaStore.Images.Media._ID);
+                int colPath = cur.getColumnIndex(MediaStore.Images.Media.DATA);
+                int colName = cur.getColumnIndex(MediaStore.Images.Media.DISPLAY_NAME);
+                int colTakenTime = cur.getColumnIndex(MediaStore.Images.Media.DATE_TAKEN);
+                int colAddedTime = cur.getColumnIndex(MediaStore.Images.Media.DATE_ADDED);
+                int colBucketName = cur.getColumnIndex(MediaStore.Images.Media.BUCKET_DISPLAY_NAME);
+                int colBucketId = cur.getColumnIndex(MediaStore.Images.Media.BUCKET_ID);
+                int colLongitude = cur.getColumnIndex(MediaStore.Images.Media.LONGITUDE);
+                int colLatitude = cur.getColumnIndex(MediaStore.Images.Media.LATITUDE);
+                int colRating = cur.getColumnIndex("rating");
+                while (cur.moveToNext()) {
+                    ImgInfo tempInfo = new ImgInfo(
+                            cur.getString(colName),
+                            cur.getString(colPath),
+                            cur.getString(colId),
+                            cur.getString(colBucketId),
+                            cur.getString(colBucketName),
+                            cur.getString(colLongitude),
+                            cur.getString(colLatitude),
+                            cur.getString(colTakenTime),
+                            cur.getString(colAddedTime));
+                    tempInfo.setRating(cur.getInt(colRating));
+                    thumbnailsInfoMap.put(cur.getInt(colId), tempInfo);
+                }
+                cur.close();
+                db.close();
+                try {
+                    TimeUnit.SECONDS.sleep(1);
+                } catch (InterruptedException e) {
+                    break;
+                }
+            }
+        }
     }
 
     // 广播接收器
     class DBUpdateBroadcastReciever extends BroadcastReceiver {
         @Override
         public void onReceive(Context contextx, Intent intent) {
-            ((ThumbnailsAdapter) ((GridView) (findViewById(R.id.gv_thumbnails_display))).getAdapter()).notifyDataSetChanged();
-            Log.i("Debug", "receive success");
+            switch (intent.getAction()) {
+                case THUMBNAIL_DISPLAY_ACTION:
+                    ((ThumbnailsAdapter) ((GridView) (findViewById(R.id.gv_thumbnails_display))).getAdapter()).notifyDataSetChanged();
+                    Log.i("Debug", "receive success");
+                    break;
+            }
         }
     }
 }

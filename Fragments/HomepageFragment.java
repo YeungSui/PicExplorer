@@ -1,4 +1,4 @@
-package com.pic.stage.picexplorer;
+package com.pic.stage.picexplorer.Fragments;
 
 import android.os.Bundle;
 import android.support.design.widget.TabLayout;
@@ -8,6 +8,9 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.ImageView;
+
+import com.pic.stage.picexplorer.Adapters.HomepageAdapter;
+import com.pic.stage.picexplorer.R;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -44,7 +47,7 @@ public class HomepageFragment extends Fragment {
         mFragments = new ArrayList<>();
         for (int i = 0; i < mTitles.size(); i++) {
             if (i == 0) {
-                mFragments.add(new PhotoThumbnailFragment());
+                mFragments.add(new PhotoFragment());
             } else if (i == 1) {
                 mFragments.add(new PictureFragment());
             }

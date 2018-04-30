@@ -24,6 +24,10 @@ public class ImgInfo {
         name = mname;
     }
 
+    public void setRating(int i) {
+        rating = i;
+    }
+
     public String getPath() {
         return path;
     }

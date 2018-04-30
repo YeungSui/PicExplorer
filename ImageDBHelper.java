@@ -47,11 +47,11 @@ public class ImageDBHelper extends SQLiteOpenHelper {
                 "rating INTEGER)";
         db.execSQL(create_image_info_temp);
 
-        String create_category = "CREATE TABLE category(category_id INTEGER PRIMARY KEY AUTOINCREMENT,category_name VARCHAR(255))";
+        String create_category = "CREATE TABLE category(category_id INTEGER PRIMARY KEY AUTOINCREMENT,category_name VARCHAR(255) UNIQUE)";
         db.execSQL(create_category);
 
         // 由于一张图片可能对应多个分类，只能将单独建一个表
-        String create_image_classification = "CREATE TABLE image_classification(_id INTEGER NOT NULL REFERENCES image_info(_id) ON DELETE CASCADE,category_id INTEGER NOT NULL REFERENCES category(category_id) ON DELETE CASCADE)";
+        String create_image_classification = "CREATE TABLE image_classification(_id INTEGER NOT NULL REFERENCES image_info(_id) ON DELETE CASCADE,category_id INTEGER NOT NULL REFERENCES category(category_id) ON DELETE CASCADE, PRIMARY KEY(_id, category_id))";
         try {
             db.execSQL(create_image_classification);
         } catch (Exception e) {
